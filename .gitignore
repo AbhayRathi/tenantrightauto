@@ -29,3 +29,9 @@ frontend/.env.local
 # OS
 .DS_Store
 Thumbs.db
+
+# Coverage artifacts
+backend/.coverage
+backend/coverage.xml
+backend/htmlcov/
+frontend/coverage/
