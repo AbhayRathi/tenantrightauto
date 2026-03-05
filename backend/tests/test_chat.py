@@ -2,6 +2,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import httpx
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -134,3 +135,132 @@ def test_letter_success(client):
     assert "letter_text" in data
     assert "generated_at" in data
     assert data["letter_text"].startswith("Dear")
+
+
+# ── Async variants ──────────────────────────────────────────────────────────
+
+
+def _get_app():
+    from main import app  # noqa: PLC0415
+    return app
+
+
+@pytest.mark.asyncio
+async def test_health_async():
+    """Async: health endpoint should return 200."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_get_app()), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "neo4j" in data
+
+
+@pytest.mark.asyncio
+async def test_chat_success_async(mock_tavily, mock_chat_claude):
+    """Async: chat endpoint should return 200 with answer, sources, citations."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_get_app()), base_url="http://test"
+    ) as ac:
+        response = await ac.post(
+            "/api/v1/chat",
+            json={"question": "Can my landlord enter without notice?"},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert "answer" in data
+    assert isinstance(data["sources"], list)
+    assert isinstance(data["citations"], list)
+
+
+@pytest.mark.asyncio
+async def test_chat_tavily_failure_still_returns_200_async(mock_chat_claude):
+    """Async: chat should succeed even when Tavily returns empty results."""
+    with patch(
+        "routers.chat.tavily_service.search_tenant_law",
+        new_callable=AsyncMock,
+        return_value=("", []),
+    ):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=_get_app()), base_url="http://test"
+        ) as ac:
+            response = await ac.post(
+                "/api/v1/chat",
+                json={"question": "What notice is required for entry?"},
+            )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_chat_tavily_exception_at_router_level_async(mock_chat_claude):
+    """Async: router handles Tavily exception gracefully."""
+    with patch(
+        "routers.chat.tavily_service.search_tenant_law",
+        new_callable=AsyncMock,
+        return_value=("", []),
+    ):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=_get_app()), base_url="http://test"
+        ) as ac:
+            response = await ac.post("/api/v1/chat", json={"question": "My question"})
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_chat_question_too_long_async():
+    """Async: should reject questions over 1000 characters."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_get_app()), base_url="http://test"
+    ) as ac:
+        response = await ac.post("/api/v1/chat", json={"question": "x" * 1001})
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_letter_empty_clauses_async():
+    """Async: should return 400 when illegal_clauses is empty."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_get_app()), base_url="http://test"
+    ) as ac:
+        response = await ac.post(
+            "/api/v1/letter",
+            json={
+                "session_id": "abc",
+                "tenant_name": "Jane Doe",
+                "tenant_address": "123 Main St",
+                "landlord_name": "Bob Smith",
+                "landlord_address": "456 Oak Ave",
+                "illegal_clauses": [],
+                "remedy_requested": "Remove illegal clauses.",
+            },
+        )
+    assert response.status_code == 400
+    assert "clause" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_letter_success_async(mock_letter_claude):
+    """Async: should return DemandLetterResponse with letter_text and generated_at."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_get_app()), base_url="http://test"
+    ) as ac:
+        response = await ac.post(
+            "/api/v1/letter",
+            json={
+                "session_id": "abc",
+                "tenant_name": "Jane Doe",
+                "tenant_address": "123 Main St, SF, CA 94102",
+                "landlord_name": "Bob Smith",
+                "landlord_address": "456 Oak Ave, SF, CA 94110",
+                "illegal_clauses": [_sample_clause()],
+                "remedy_requested": "Remove clause 5.",
+            },
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert "letter_text" in data
+    assert "generated_at" in data
+    assert data["letter_text"].startswith("Dear")
+
