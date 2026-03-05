@@ -27,22 +27,26 @@ function RiskBadge({ score }: { score: number }) {
 
 export default function AnalyzePage() {
   const router = useRouter();
-  const [data, setData] = useState<AnalyzeResponse | null>(null);
+  // Read sessionStorage synchronously via lazy initializer — no effect needed for state
+  const [data] = useState<AnalyzeResponse | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = sessionStorage.getItem("analyzeResult");
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as AnalyzeResponse;
+    } catch {
+      return null;
+    }
+  });
   const [selectedClauses, setSelectedClauses] = useState<IllegalClause[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("clauses");
 
+  // Side-effect only: redirect when there is no data to show
   useEffect(() => {
-    const raw = sessionStorage.getItem("analyzeResult");
-    if (!raw) {
-      router.replace("/");
-      return;
-    }
-    try {
-      setData(JSON.parse(raw));
-    } catch {
+    if (!data) {
       router.replace("/");
     }
-  }, [router]);
+  }, [data, router]);
 
   if (!data) {
     return (
