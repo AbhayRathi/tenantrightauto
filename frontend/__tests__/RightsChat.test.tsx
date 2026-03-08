@@ -112,9 +112,10 @@ describe('RightsChat', () => {
   it('sends a message when a suggested question is clicked', async () => {
     vi.mocked(chat).mockResolvedValue(SAMPLE_RESPONSE)
 
+    const user = userEvent.setup()
     render(<RightsChat />)
     const suggestedBtn = screen.getByText(/can my landlord raise my rent\?/i)
-    suggestedBtn.click()
+    await user.click(suggestedBtn)
 
     await waitFor(() => {
       expect(vi.mocked(chat)).toHaveBeenCalledOnce()
